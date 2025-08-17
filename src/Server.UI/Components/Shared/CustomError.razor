@@ -1,32 +1,69 @@
 ﻿@using System.Net
 @inject ILogger<CustomError> Logger
+@inject IStringLocalizer<CustomError> L
 
-<MudDialog Visible="true">
-    <TitleContent>
-        <MudText Typo="Typo.h6" Color="Color.Error"> @StatusCode </MudText>
-    </TitleContent>
-    <DialogContent>
-        <div Class="px-6 rounded-lg d-flex flex-column">
-            <MudIcon Icon="@Icons.Material.Filled.ErrorOutline" Class="pb-4" Style="height:100px;width:100px;margin:auto" Color="Color.Warning"/>
+<div style="display: flex; justify-content: center; align-items: center; min-height: 60vh; padding: 2rem;">
+    <MudPaper Class="pa-8" Elevation="1" Style="max-width: 600px; text-align: center;">
+        
+        <MudIcon Icon="@Icons.Material.Filled.Error" Color="Color.Error" Style="font-size: 3.5rem;" Class="mb-4" />
+        
+        <MudText Typo="Typo.h3" Class="mb-3" Style="font-weight: 300;">
+            @StatusCode
+        </MudText>
+        
+ 
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-4">
+            <MudText Typo="Typo.body1" Class="mb-2">@Message</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">@L["For more information, contact your system administrator"]</MudText>
+        </MudAlert>
+        
+        <MudPaper Elevation="0" Class="mb-4 pa-2" Style="background-color: var(--mud-palette-background-grey);">
+            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                @L["Time"]: @DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
+            </MudText>
+        </MudPaper>
 
-            <div class="d-flex align-center gap-4">
-                <MudText Typo="Typo.subtitle2">@Message</MudText>
-                <MudText Typo="Typo.subtitle2">@DateTime.Now</MudText>
-                <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="@(() => ShowStackTrace = !ShowStackTrace)">More</MudButton>
-            </div>
-            <MudText>@Message For more information, contact your system administrator</MudText>
+        @if (!string.IsNullOrEmpty(StackTrace))
+        {
+            <MudStack AlignItems="AlignItems.Center" Class="mb-4">
+                <MudButton 
+                    Variant="Variant.Text" 
+                    Color="Color.Primary" 
+                    EndIcon="@(ShowStackTrace ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)" 
+                    OnClick="@(() => ShowStackTrace = !ShowStackTrace)">
+                    @(ShowStackTrace ? L["Hide Details"] : L["Show Details"])
+                </MudButton>
+            </MudStack>
+
             @if (ShowStackTrace)
             {
-                <MudText Typo="Typo.body2" Class="mt-2">@StackTrace</MudText>
+                <MudPaper Elevation="0" Class="mb-4 pa-4" Style="background-color: var(--mud-palette-background-grey); text-align: left;">
+                    <MudText Typo="Typo.subtitle2" Class="mb-2">@L["Stack Trace"]</MudText>
+                    <MudText Typo="Typo.body2" Style="white-space: pre-wrap; overflow-x: auto; max-height: 200px; font-family: monospace; font-size: 0.75rem;">
+                        @StackTrace
+                    </MudText>
+                </MudPaper>
             }
-            <MudDivider Class="my-3"/>
-
-        </div>
-    </DialogContent>
-    <DialogActions>
-        <MudButton Color="Color.Default" OnClick="OnRefresh">@ConstantString.Refresh</MudButton>
-    </DialogActions>
-</MudDialog>
+        }
+        
+        <MudStack Row Justify="Justify.Center" Spacing="2">
+            <MudButton Variant="Variant.Filled" 
+                      Color="Color.Primary" 
+                      StartIcon="@Icons.Material.Filled.Refresh"
+                      OnClick="OnRefresh">
+                @ConstantString.Refresh
+            </MudButton>
+            
+            <MudButton Variant="Variant.Outlined" 
+                      Color="Color.Primary" 
+                      StartIcon="@Icons.Material.Filled.Home"
+                      Href="/">
+                @L["Return Home"]
+            </MudButton>
+        </MudStack>
+        
+    </MudPaper>
+</div>
 
 @code
 {
@@ -44,17 +81,7 @@
         var state = await AuthState;
         var userName = state.User.GetUserName();
 
-        switch (Exception)
-        {
-            case ServerException e:
-                StatusCode = e.StatusCode.ToString();
-                if (e.ErrorMessages is not null)
-                {
-                    Message = string.Join(", ", e.ErrorMessages.ToArray());
-                }
-
-                break;
-            default:
+        
                 if (Exception.InnerException != null)
                 {
                     while (Exception.InnerException != null)
@@ -62,13 +89,12 @@
                         Exception = Exception.InnerException;
                     }
                 }
-
                 Message = Exception.Message;
-                break;
-        }
+             
 
         StackTrace = Exception.StackTrace;
-        Logger.LogError(Exception, "{Message}. request url: {@url} {@UserName}", Message, Navigation.Uri, userName);
+        var sanitizedUri = Navigation.Uri.Replace("\n", "").Replace("\r", "");
+        Logger.LogError(Exception, "{Message}. request url: {@url} {@UserName}", Message, sanitizedUri, userName);
     }
 
     private void OnRefresh()

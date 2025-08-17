@@ -5,18 +5,20 @@
 //     See the LICENSE file in the project root for more information.
 //
 //     Author: neozhu
-//     Created Date: 2025-03-19
-//     Last Modified: 2025-03-19
+//     Created Date: 2025-07-18
+//     Last Modified: 2025-07-18
 //     Description: 
 //       Defines the available views for filtering contacts and provides advanced 
 //       filtering options for contact lists. This includes pagination and various 
 //       filters such as view types and user-specific filters.
 // </auto-generated>
 //------------------------------------------------------------------------------
+#nullable enable
+#nullable disable warnings
 
 namespace CleanArchitecture.Blazor.Application.Features.Contacts.Specifications;
 
-#nullable enable
+#nullable disable warnings
 /// <summary>
 /// Specifies the different views available for the Contact list.
 /// </summary>

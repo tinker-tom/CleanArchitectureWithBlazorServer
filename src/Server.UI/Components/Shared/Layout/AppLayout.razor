@@ -1,6 +1,8 @@
 ﻿@layout MainLayout
 @inherits LayoutComponentBase
-@inject UserProfileStateService UserProfileStateService
+@using CleanArchitecture.Blazor.Application.Common.Interfaces.Identity
+@using CleanArchitecture.Blazor.Application.Common.Extensions
+@inject IUserProfileState UserProfileState
 @inject LayoutService LayoutService
 @implements IDisposable
 <MudLayout>
@@ -17,7 +19,8 @@
                         RightToLeftToggle="LayoutService.ToggleRightToLeft"
                         OnSettingClick="@(() => themeSettings?.OpenSetting())" />
             <NavigationMenu DrawerOpen="_navigationMenuDrawerOpen" Roles="@(UserProfile?.AssignedRoles??[])"
-                            DrawerOpenChanged="NavigationMenuDrawerOpenChangedHandler"/>
+                            DrawerOpenChanged="NavigationMenuDrawerOpenChangedHandler"
+                            OnSettingClick="@(() => themeSettings?.OpenSetting())"/>
             <ThemesMenu @ref="themeSettings" UserPreferences="@LayoutService.UserPreferences"
                         UserPreferencesChanged="LayoutService.UpdateUserPreferences"/>
            
@@ -55,26 +58,35 @@
     protected override async Task OnInitializedAsync()
     {
         var state = await AuthState;
-        UserProfileStateService.OnChange += UserProfileStateService_OnChange;
-        await UserProfileStateService.InitializeAsync(state.User.Identity?.Name??string.Empty);
-        UserProfile = UserProfileStateService.UserProfile;
-
+        UserProfileState.Changed += OnUserProfileChanged;
+        
+        var userId = state.User.GetUserId();
+        if (state.User.Identity?.IsAuthenticated == true && !string.IsNullOrEmpty(userId))
+        {
+            await UserProfileState.EnsureInitializedAsync(userId);
+            UserProfile = UserProfileState.Value;
+        }
+        
+      
     }
      
 
     public void Dispose()
     {
-        UserProfileStateService.OnChange -= UserProfileStateService_OnChange;
+        UserProfileState.Changed -= OnUserProfileChanged;
     }
+    
     protected override void OnParametersSet()
     {
         ResetBoundary();
     }
-    private async Task UserProfileStateService_OnChange()
+    
+    private void OnUserProfileChanged(object? sender, UserProfile userProfile)
     {
-        UserProfile = UserProfileStateService.UserProfile;
-        await InvokeAsync(StateHasChanged);
+        UserProfile = userProfile;
+        InvokeAsync(StateHasChanged);
     }
+    
     private void ResetBoundary()
     {
         // On each page navigation, reset any error state

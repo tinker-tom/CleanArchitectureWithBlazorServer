@@ -104,7 +104,7 @@
                     <CellTemplate>
                         @if (_accessRights.Edit || _accessRights.Delete)
                         {
-                            <MudMenu Icon="@Icons.Material.Filled.Edit" Variant="Variant.Filled" Size="Size.Small"
+                            <MudMenu Icon="@Icons.Material.Filled.Edit" Variant="Variant.Outlined" Size="Size.Small"
                                      Dense="true"
                                      EndIcon="@Icons.Material.Filled.KeyboardArrowDown" IconColor="Color.Info" AnchorOrigin="Origin.CenterLeft">
                                 @if (_accessRights.Edit)
@@ -119,17 +119,18 @@
                         }
                         else
                         {
-                            <MudIconButton Variant="Variant.Filled"  
-                                       Disabled="true"
-                                       Icon="@Icons.Material.Filled.DoNotTouch"
-                                       Size="Size.Small"
-                                       Color="Color.Surface">
-                                @ConstantString.NoAllowed
-                            </MudIconButton>
+                            <MudTooltip Text="@ConstantString.NoAllowed" Delay="300">
+                                <MudIconButton Variant="Variant.Outlined"  
+                                               Disabled="true"
+                                               Icon="@Icons.Material.Filled.DoNotTouch"
+                                               Size="Size.Small"
+                                               Color="Color.Surface">
+                                    @ConstantString.NoAllowed
+                                </MudIconButton>
+                            </MudTooltip>
                         }
                     </CellTemplate>
                 </TemplateColumn>
-                @*TODO: Define the fields that should be displayed in data table*@
                 <PropertyColumn Property="x => x.Name" Title="@L[_contactDto.GetMemberDescription(x=>x.Name)]"> 
    <CellTemplate>
       <div class="d-flex flex-column">
@@ -166,8 +167,6 @@
     private bool _uploading;
     private bool _exporting;
     [CascadingParameter]
-    private Task<AuthenticationState> AuthState { get; set; } = default!;
-    [CascadingParameter]
     private UserProfile? UserProfile { get; set; }
 
 
@@ -179,7 +178,7 @@
         Title = L[_contactDto.GetClassDescription()];
         _accessRights = await PermissionService.GetAccessRightsAsync<ContactsAccessRights>(); 
     }
-
+     
     private async Task<GridData<ContactDto>> ServerReload(GridState<ContactDto> state)
     {
         try
@@ -220,32 +219,27 @@
         _contactsQuery.Keyword  = string.Empty;
         await _contactsGrid.ReloadServerData();
     }
-    private async Task ShowEditFormDialog(string title, AddEditContactCommand command)
+    private  Task ShowEditFormDialog(string title, AddEditContactCommand command)
     {
-        var parameters = new DialogParameters<ContactFormDialog>
+        return DialogServiceHelper.ShowFormDialogAsync<ContactFormDialog, AddEditContactCommand>(
+            title,
+            command,
+            async () =>
             {
-                { x=>x._model,command },
-            };
-        var options = new DialogOptions { CloseButton = true, MaxWidth = MaxWidth.Medium, FullWidth = true };
-        var dialog = await DialogService.ShowAsync<ContactFormDialog>(title, parameters, options);
-        var state = await dialog.Result;
-
-        if (state != null && !state.Canceled)
-        {
-            await _contactsGrid.ReloadServerData();
-            _selectedContacts.Clear();
-        }
+                await _contactsGrid.ReloadServerData();
+                _selectedContacts.Clear();
+            });
     }
     private void OnDataGridRowClick(ContactDto dto)
     {
         Navigation.NavigateTo($"/pages/contacts/view/{dto.Id}");
     }
-    private async Task OnCreate()
+    private Task OnCreate()
     {
         var command = new AddEditContactCommand();
-        await ShowEditFormDialog(L["New Contact"], command);
+        return ShowEditFormDialog(L["New Contact"], command);
     }
-    private async Task OnCloneContact()
+    private Task OnCloneContact()
     {
         var dto = _selectedContacts.First();
         var command = new AddEditContactCommand()
@@ -257,43 +251,43 @@
         Country = dto.Country, 
 
         };
-        await ShowEditFormDialog(L["Clone Contact"], command);
+        return ShowEditFormDialog(L["Clone Contact"], command);
     }
     private Task OnEditContact(ContactDto dto)
     {
-        //var command = Mapper.Map<AddEditContactCommand>(dto);
-        //await ShowEditFormDialog(L["Edit Contact"], command);
-        Navigation.NavigateTo($"/pages/contacts/edit/{dto.Id}");
-        return Task.CompletedTask;
+       //var command = Mapper.Map<AddEditContactCommand>(dto);
+       //return ShowEditFormDialog(L["Edit Contact"], command);
+       Navigation.NavigateTo($"/pages/contacts/edit/{dto.Id}");
+       return Task.CompletedTask;
     }
 
-    private async Task OnDeleteContact(ContactDto dto)
+    private Task OnDeleteContact(ContactDto dto)
     {
         var contentText = string.Format(ConstantString.DeleteConfirmation, dto.Name);
         var command = new DeleteContactCommand(new int[] { dto.Id });
-        await DialogServiceHelper.ShowDeleteConfirmationDialogAsync(command, ConstantString.DeleteConfirmationTitle, contentText,async () =>
-        {
-            await InvokeAsync(async () =>
-            {
-                await _contactsGrid.ReloadServerData();
-                _selectedContacts.Clear();
-            });
-        });
+        return DeleteContactsInternal(command, contentText); 
     }
 
-    private async Task OnDeleteSelectedContacts()
+    private Task OnDeleteSelectedContacts()
     {
         var contentText = string.Format(ConstantString.DeleteConfirmWithSelected, _selectedContacts.Count);
         var command = new DeleteContactCommand(_selectedContacts.Select(x => x.Id).ToArray());
-        await DialogServiceHelper.ShowDeleteConfirmationDialogAsync(command, ConstantString.DeleteConfirmationTitle, contentText,async () =>
-        {
-            await InvokeAsync(async () =>
+        return DeleteContactsInternal(command, contentText);
+    }
+
+    private Task DeleteContactsInternal(DeleteContactCommand command, string contentText)
+    {
+        return DialogServiceHelper.ShowDeleteConfirmationDialogAsync(
+            command,
+            ConstantString.DeleteConfirmationTitle,
+            contentText,
+            async () =>
             {
                 await _contactsGrid.ReloadServerData();
                 _selectedContacts.Clear();
             });
-        });
     }
+
 
     private async Task OnExport()
     {
@@ -310,8 +304,15 @@
         await result.MatchAsync(
             async data =>
             {
-                await BlazorDownloadFileService.DownloadFileAsync($"{L["Contacts"]}.xlsx", result.Data!, contentType:"application/octet-stream");
-                Snackbar.Add($"{ConstantString.ExportSuccess}", MudBlazor.Severity.Info);
+                if (result.Data != null)
+                {
+                    await BlazorDownloadFileService.DownloadFileAsync($"{L["Contacts"]}.xlsx", result.Data, contentType:"application/octet-stream");
+                    Snackbar.Add($"{ConstantString.ExportSuccess}", MudBlazor.Severity.Info);
+                }
+                else
+                {
+                    Snackbar.Add("导出失败", MudBlazor.Severity.Error);
+                }
             },
             errors =>
             {

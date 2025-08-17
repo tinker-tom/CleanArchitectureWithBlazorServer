@@ -1,4 +1,4 @@
-﻿using CleanArchitecture.Blazor.Infrastructure.Constants.Role;
+﻿using CleanArchitecture.Blazor.Application.Common.Constants.Roles;
 using CleanArchitecture.Blazor.Server.UI.Models.NavigationMenu;
 
 namespace CleanArchitecture.Blazor.Server.UI.Services.Navigation;
@@ -103,7 +103,13 @@ public class MenuService : IMenuService
                             Title = "Profile",
                             Href = "/user/profile",
                             PageStatus = PageStatus.Completed
-                        }
+                        },
+                        new()
+                        {
+                            Title = "Login History",
+                            Href = "/pages/identity/loginaudits",
+                            PageStatus = PageStatus.Completed
+                        },
                     }
                 },
                 new()

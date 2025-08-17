@@ -4,18 +4,28 @@
 @using CleanArchitecture.Blazor.Domain.Identity
 @using CleanArchitecture.Blazor.Application.Features.Identity.DTOs
 @using System.Security.Claims
-@using CleanArchitecture.Blazor.Infrastructure.Persistence
+
 @using CleanArchitecture.Blazor.Server.UI.Pages.Identity.Roles.Components
-@using CleanArchitecture.Blazor.Infrastructure.Constants.ClaimTypes
+@using CleanArchitecture.Blazor.Application.Common.Constants.ClaimTypes
 @using System.Linq.Expressions
 @using ZiggyCreatures.Caching.Fusion
+@using CleanArchitecture.Blazor.Application.Common.Constants
+@using CleanArchitecture.Blazor.Application.Common.Security
+@using System.Data
+@using CleanArchitecture.Blazor.Server.UI.Services.Identity
 
 @attribute [Authorize(Policy = Permissions.Roles.View)]
-@inherits OwningComponentBase<ApplicationDbContext>
+@inherits OwningComponentBase
 @inject ITenantService _tenantService
 @inject IRoleService _roleService
 @inject IFusionCache _fusionCache
 @inject IStringLocalizer<Roles> _localizer
+@inject IExcelService ExcelService
+@inject BlazorDownloadFileService BlazorDownloadFileService
+@inject IExcelService ExcelService
+@inject BlazorDownloadFileService BlazorDownloadFileService
+@inject IExcelService ExcelService
+@inject BlazorDownloadFileService BlazorDownloadFileService
 
 <PageTitle>@_title</PageTitle>
 
@@ -103,7 +113,7 @@
             <CellTemplate>
                 @if (_accessRights.Edit || _accessRights.Delete || _accessRights.ManagePermissions)
                 {
-                    <MudMenu Icon="@Icons.Material.Filled.Edit" Variant="Variant.Filled" Size="Size.Small"
+                    <MudMenu Icon="@Icons.Material.Filled.Edit" Variant="Variant.Outlined" Size="Size.Small"
                              Dense="true" EndIcon="@Icons.Material.Filled.KeyboardArrowDown"
                              IconColor="Color.Info" AnchorOrigin="Origin.CenterLeft">
                         @if (_accessRights.Edit)
@@ -122,16 +132,16 @@
                 }
                 else
                 {
-                    <MudButton Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.DoNotTouch"
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.DoNotTouch"
                                IconColor="Color.Secondary" Size="Size.Small" Color="Color.Surface">
                         @ConstantString.NoAllowed
                     </MudButton>
                 }
             </CellTemplate>
         </TemplateColumn>
-        <PropertyColumn Property="x => x.TenantId" Title="@_localizer[_currentDto.GetMemberDescription(x => x.TenantName)]">
+        <PropertyColumn Property="x => x.TenantId" Title="@_localizer[_currentDto.GetMemberDescription(x => x.Tenant)]">
             <CellTemplate>
-                <MudText>@context.Item.TenantName</MudText>
+                <MudText>@context.Item.Tenant?.Name</MudText>
             </CellTemplate>
             <FooterTemplate>
                 @_localizer["Selected"]: @_selectedRoles.Count
@@ -179,24 +189,24 @@
     private bool _isLoading;
     private bool _isUploading;
     private bool _isExporting;
-    private PermissionHelper _permissionHelper = null!;
+    private RolePermissionAssignmentService _permissionAssignmentService = null!;
     private RolesAccessRights _accessRights = new();
 
     #endregion
 
-    #region Lifecycle Methods
-
+    #region Lifecycle Methods    
     protected override async Task OnInitializedAsync()
     {
         InitializeServices();
         _title = _localizer[_currentDto.GetClassDescription()];
         _accessRights = await PermissionService.GetAccessRightsAsync<RolesAccessRights>();
+        await _tenantService.InitializeAsync();
     }
 
     private void InitializeServices()
     {
         _roleManager = ScopedServices.GetRequiredService<RoleManager<ApplicationRole>>();
-        _permissionHelper = ScopedServices.GetRequiredService<PermissionHelper>();
+        _permissionAssignmentService = ScopedServices.GetRequiredService<RolePermissionAssignmentService>();
     }
 
     #endregion
@@ -221,7 +231,7 @@
             var totalCount = await _roleManager.Roles.CountAsync(predicate);
             var roles = await _roleManager.Roles
                 .Where(predicate)
-                .EfOrderBySortDefinitions(state)
+                .ApplySortDefinitions(state)
                 .Skip(state.Page * state.PageSize)
                 .Take(state.PageSize)
                 .ProjectTo<ApplicationRoleDto>(Mapper.ConfigurationProvider)
@@ -256,7 +266,7 @@
         await InvokeAsync(async () =>
         {
             _selectedRoles = new HashSet<ApplicationRoleDto>();
-            _roleService.Refresh();
+            await _roleService.RefreshAsync();
             await _dataGrid.ReloadServerData();
         });
     }
@@ -283,7 +293,7 @@
             var existingRole = await _roleManager.FindByIdAsync(item.Id);
             if (existingRole is not null)
             {
-                existingRole.TenantId = item.TenantId;
+                existingRole.TenantId = item.Tenant?.Id;
                 existingRole.Description = item.Description;
                 existingRole.Name = item.Name;
                 return await _roleManager.UpdateAsync(existingRole);
@@ -307,7 +317,7 @@
         {
             var applicationRole = new ApplicationRole
             {
-                TenantId = model.TenantId,
+                TenantId = model.Tenant?.Id,
                 Name = model.Name,
                 Description = model.Description
             };
@@ -334,7 +344,7 @@
     {
         _showPermissionsDrawer = true;
         _currentRoleName = item.Name!;
-        _permissions = await _permissionHelper.GetAllPermissionsByRoleId(item.Id);
+        _permissions = await _permissionAssignmentService.LoadAsync(item.Id);
     }
 
     // Update drawer open state.
@@ -347,62 +357,11 @@
     // Process a single permission change.
     private async Task OnAssignChangedHandler(PermissionModel model)
     {
-        await ProcessPermissionChange(model, async (roleId, claim, assigned) =>
-        {
-            var role = await _roleManager.FindByIdAsync(roleId)
-                ?? throw new NotFoundException($"Application role {roleId} not found.");
-            if (assigned)
-            {
-                await _roleManager.AddClaimAsync(role, claim);
-                Snackbar.Add(_localizer["Permission assigned successfully"], Severity.Info);
-            }
-            else
-            {
-                await _roleManager.RemoveClaimAsync(role, claim);
-                Snackbar.Add(_localizer["Permission removed successfully"], Severity.Info);
-            }
-        });
-    }
-
-    // Process batch permission changes.
-    private async Task OnAssignAllChangedHandler(List<PermissionModel> models)
-    {
-        var roleGroups = models.GroupBy(m => m.RoleId).ToDictionary(g => g.Key!, g => g.ToList());
-
-        foreach (var (roleId, permissionModels) in roleGroups)
-        {
-            var assignedClaims = permissionModels
-                .Where(m => m.Assigned)
-                .Select(m => new Claim(m.ClaimType, m.ClaimValue))
-                .ToList();
-            var unassignedClaims = permissionModels
-                .Where(m => !m.Assigned)
-                .Select(m => new Claim(m.ClaimType, m.ClaimValue))
-                .ToList();
-
-            await ProcessPermissionsBatch(roleId, assignedClaims, unassignedClaims);
-        }
-        Snackbar.Add(_localizer["Authorization has been changed"], Severity.Info);
-    }
-
-    // Process permission batch for a role.
-    private async Task ProcessPermissionsBatch(string roleId, List<Claim> assignedClaims, List<Claim> unassignedClaims)
-    {
         _isProcessing = true;
         try
         {
-            var role = await _roleManager.FindByIdAsync(roleId)
-                ?? throw new NotFoundException($"Application role {roleId} not found.");
-
-            foreach (var claim in assignedClaims)
-            {
-                await _roleManager.AddClaimAsync(role, claim);
-            }
-            foreach (var claim in unassignedClaims)
-            {
-                await _roleManager.RemoveClaimAsync(role, claim);
-            }
-            _fusionCache.Remove($"get-claims-by-{roleId}");
+            await _permissionAssignmentService.AssignAsync(model);
+            Snackbar.Add(model.Assigned ? _localizer["Permission assigned successfully"] : _localizer["Permission removed successfully"], Severity.Info);
         }
         finally
         {
@@ -410,17 +369,14 @@
         }
     }
 
-    // Toggle a permission and apply the change.
-    private async Task ProcessPermissionChange(PermissionModel model, Func<string, Claim, bool, Task> changeAction)
+    // Process batch permission changes.
+    private async Task OnAssignAllChangedHandler(List<PermissionModel> models)
     {
         _isProcessing = true;
         try
         {
-            var roleId = model.RoleId!;
-            var claim = new Claim(model.ClaimType, model.ClaimValue);
-            model.Assigned = !model.Assigned;
-            await changeAction(roleId, claim, model.Assigned);
-            _fusionCache.Remove($"get-claims-by-{roleId}");
+            await _permissionAssignmentService.AssignBulkAsync(models);
+            Snackbar.Add(_localizer["Authorization has been changed"], Severity.Info);
         }
         finally
         {
@@ -481,24 +437,174 @@
 
     #endregion
 
-    #region Export and Import
-
-    // Export role data (stub implementation).
-    private Task OnExport()
+    #region Export and Import    // Export role data to Excel.
+    private async Task OnExport()
     {
         _isExporting = true;
-        // Implement export logic here
-        _isExporting = false;
-        return Task.CompletedTask;
-    }
+        try
+        {
+            // Prepare the query predicate based on current filter settings
+            var predicate = CreateSearchPredicate();
+            
+            // Retrieve the roles to export
+            var roles = await _roleManager.Roles
+                .Where(predicate)
+                .OrderBy(r => r.TenantId)
+                .ThenBy(r => r.Name)
+                .ProjectTo<ApplicationRoleDto>(Mapper.ConfigurationProvider)
+                .ToListAsync();
 
-    // Import role data (stub implementation).
-    private Task OnImportData(IBrowserFile file)
+            // Export to Excel using IExcelService
+            var fileData = await ExcelService.ExportAsync(roles, 
+                new Dictionary<string, Func<ApplicationRoleDto, object?>>
+                {
+                    { _localizer["Id"], item => item.Id },
+                    { _localizer["Tenant Name"], item => item.Tenant.Name },
+                    { _localizer["Name"], item => item.Name },
+                    { _localizer["Normalized Name"], item => item.NormalizedName },
+                    { _localizer["Description"], item => item.Description }
+                }, 
+                _localizer["Roles"]);
+                
+            // Download the Excel file
+            await BlazorDownloadFileService.DownloadFileAsync($"{_localizer["Roles"]}.xlsx", fileData, "application/octet-stream");
+            Snackbar.Add(ConstantString.ExportSuccess, Severity.Info);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"{ConstantString.ExportFail}: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isExporting = false;
+        }
+    }    // Import role data from Excel file.
+    private async Task OnImportData(IBrowserFile file)
     {
         _isUploading = true;
-        // Implement import logic here
-        _isUploading = false;
-        return Task.CompletedTask;
+        try
+        {
+            // Read the file into a memory stream
+            using var stream = new MemoryStream();
+            await file.OpenReadStream(GlobalVariable.MaxAllowedSize).CopyToAsync(stream);
+            
+            // Import data from Excel using IExcelService
+            var importResult = await ImportRolesFromExcelAsync(stream);
+            
+            if (importResult?.Succeeded == true)
+            {
+                if (importResult.Data != null)
+                {
+                    // Process the imported roles
+                    await ProcessImportedRolesAsync(importResult.Data);
+                    await _dataGrid.ReloadServerData();
+                }
+                Snackbar.Add(ConstantString.ImportSuccess, Severity.Info);
+            }
+            else if (importResult?.Errors != null)
+            {
+                foreach (var error in importResult.Errors)
+                {
+                    Snackbar.Add(error, Severity.Error);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"{ConstantString.ImportFail}: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isUploading = false;
+        }
+    }
+    
+    // Helper method to import roles from Excel.
+    private async Task<IResult<IEnumerable<ApplicationRole>>> ImportRolesFromExcelAsync(MemoryStream stream)
+    {
+        return await ExcelService.ImportAsync<ApplicationRole>(stream.ToArray(), 
+            new Dictionary<string, Func<DataRow, ApplicationRole, object?>>
+            {
+                { _localizer["Name"], (row, item) => item.Name = row[_localizer["Name"]]?.ToString() },
+                { _localizer["Description"], (row, item) => item.Description = row[_localizer["Description"]]?.ToString() },
+                { _localizer["Tenant Name"], (row, item) => 
+                    {
+                        var tenantName = row[_localizer["Tenant Name"]]?.ToString();
+                        if (!string.IsNullOrEmpty(tenantName))
+                        {
+                            var tenant = _tenantService.DataSource.FirstOrDefault(t => t.Name == tenantName);
+                            item.TenantId = tenant?.Id;
+                        }
+                        return item.TenantId;
+                    }
+                }
+            });
+    }
+    
+    // Helper method to process the imported roles.
+    private async Task ProcessImportedRolesAsync(IEnumerable<ApplicationRole> importedRoles)
+    {
+        var createdCount = 0;
+        var updatedCount = 0;
+        var errors = 0;
+        
+        foreach (var importedRole in importedRoles)
+        {
+            try
+            {
+                // Check if the role already exists for this tenant
+                var existingRole = await _roleManager.Roles.FirstOrDefaultAsync(
+                    r => r.NormalizedName == _roleManager.NormalizeKey(importedRole.Name) && 
+                         r.TenantId == importedRole.TenantId);
+                
+                if (existingRole == null)
+                {
+                    // Create new role
+                    var result = await _roleManager.CreateAsync(importedRole);
+                    if (result.Succeeded)
+                    {
+                        createdCount++;
+                    }
+                    else
+                    {
+                        errors++;
+                    }
+                }
+                else
+                {
+                    // Update existing role
+                    existingRole.Description = importedRole.Description;
+                    var result = await _roleManager.UpdateAsync(existingRole);
+                    if (result.Succeeded)
+                    {
+                        updatedCount++;
+                    }
+                    else
+                    {
+                        errors++;
+                    }
+                }
+            }
+            catch
+            {
+                errors++;
+            }
+        }
+        
+        if (createdCount > 0)
+        {
+            Snackbar.Add($"Created {createdCount} new roles", Severity.Success);
+        }
+        
+        if (updatedCount > 0)
+        {
+            Snackbar.Add($"Updated {updatedCount} existing roles", Severity.Success);
+        }
+        
+        if (errors > 0)
+        {
+            Snackbar.Add($"Failed to import {errors} roles", Severity.Error);
+        }
     }
 
     #endregion

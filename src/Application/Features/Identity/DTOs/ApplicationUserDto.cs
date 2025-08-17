@@ -58,30 +58,27 @@ public class ApplicationUserDto
     public DateTime? Created { get; set; }
     [Description("Created By")]
     public string? CreatedBy { get; set; }
-    [Description("Created By User")]
-    public ApplicationUserDto? CreatedByUser { get; set; }
-    [Description("Last Modified By User")]
-    public ApplicationUserDto? LastModifiedByUser { get; set; }
+ 
     public UserProfile ToUserProfile()
     {
-        return new UserProfile
-        {
-            UserId = Id,
-            ProfilePictureDataUrl = ProfilePictureDataUrl,
-            Email = Email,
-            PhoneNumber = PhoneNumber,
-            DisplayName = DisplayName,
-            Provider = Provider,
-            UserName = UserName,
-            TenantId = TenantId,
-            TenantName = Tenant?.Name,
-            SuperiorId = SuperiorId,
-            SuperiorName = Superior?.UserName,
-            AssignedRoles = AssignedRoles,
-            DefaultRole = DefaultRole,
-            TimeZoneId = TimeZoneId,
-            LanguageCode = LanguageCode
-        };
+        return new UserProfile(
+            UserId: Id,
+            UserName: UserName,
+            Email: Email,
+            Provider: Provider,
+            SuperiorName: Superior?.UserName,
+            SuperiorId: SuperiorId,
+            ProfilePictureDataUrl: ProfilePictureDataUrl,
+            DisplayName: DisplayName,
+            PhoneNumber: PhoneNumber,
+            DefaultRole: DefaultRole,
+            AssignedRoles: AssignedRoles,
+            IsActive: IsActive,
+            TenantId: TenantId,
+            TenantName: Tenant?.Name,
+            TimeZoneId: TimeZoneId,
+            LanguageCode: LanguageCode
+        );
     }
 
     public bool IsInRole(string role)
@@ -112,35 +109,9 @@ public class ApplicationUserDto
                     AssignedRoles = y.Superior.UserRoles.Select(r => r.Role.Name).ToArray(),
                     TimeZoneId = y.Superior.TimeZoneId,
                     LanguageCode = y.Superior.LanguageCode
-                } : null))
-                .ForMember(x => x.CreatedByUser, s => s.MapFrom(y => y.CreatedByUser != null ? new ApplicationUserDto()
-                {
-                    Id = y.CreatedByUser.Id,
-                    UserName = y.CreatedByUser.UserName,
-                    DisplayName = y.CreatedByUser.DisplayName,
-                    Email = y.CreatedByUser.Email,
-                    PhoneNumber = y.CreatedByUser.PhoneNumber,
-                    ProfilePictureDataUrl = y.CreatedByUser.ProfilePictureDataUrl,
-                    IsActive = y.CreatedByUser.IsActive,
-                    TenantId = y.CreatedByUser.TenantId,
-                    AssignedRoles = y.CreatedByUser.UserRoles.Select(r => r.Role.Name).ToArray(),
-                    TimeZoneId = y.CreatedByUser.TimeZoneId,
-                    LanguageCode = y.CreatedByUser.LanguageCode
-                } : null))
-                .ForMember(x => x.LastModifiedByUser, s => s.MapFrom(y => y.LastModifiedByUser != null ? new ApplicationUserDto()
-                {
-                    Id = y.LastModifiedByUser.Id,
-                    UserName = y.LastModifiedByUser.UserName,
-                    DisplayName = y.LastModifiedByUser.DisplayName,
-                    Email = y.LastModifiedByUser.Email,
-                    PhoneNumber = y.LastModifiedByUser.PhoneNumber,
-                    ProfilePictureDataUrl = y.LastModifiedByUser.ProfilePictureDataUrl,
-                    IsActive = y.LastModifiedByUser.IsActive,
-                    TenantId = y.LastModifiedByUser.TenantId,
-                    AssignedRoles = y.LastModifiedByUser.UserRoles.Select(r => r.Role.Name).ToArray(),
-                    TimeZoneId = y.LastModifiedByUser.TimeZoneId,
-                    LanguageCode = y.LastModifiedByUser.LanguageCode
                 } : null));
+                 
+                 
 
         }
     }
@@ -172,6 +143,6 @@ public class ApplicationUserDtoValidator : AbstractValidator<ApplicationUserDto>
 
         RuleFor(x => x.PhoneNumber)
             .MaximumLength(20).WithMessage(_localizer["Phone number must be less than 20 digits"]);
-        _localizer = localizer;
+   
     }
 }

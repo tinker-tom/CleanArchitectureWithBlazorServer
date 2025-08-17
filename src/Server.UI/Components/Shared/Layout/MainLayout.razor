@@ -20,7 +20,7 @@
     private bool _defaultDarkMode;
     public void Dispose()
     {
-        LayoutService.MajorUpdateOccured -= LayoutServiceOnMajorUpdateOccured;
+        LayoutService.MajorUpdateOccurred -= LayoutServiceOnMajorUpdateOccurred;
         GC.SuppressFinalize(this);
     }
 
@@ -36,20 +36,27 @@
 
     private async Task ApplyUserPreferences()
     {
-        _defaultDarkMode = await _mudThemeProvider.GetSystemPreference();
+        _defaultDarkMode = await _mudThemeProvider.GetSystemDarkModeAsync();
         await LayoutService.ApplyUserPreferences(_defaultDarkMode);
     }
 
-    protected override Task OnInitializedAsync()
+    protected override async Task OnInitializedAsync()
     {
-        LayoutService.MajorUpdateOccured += LayoutServiceOnMajorUpdateOccured;
-        LayoutService.SetBaseTheme(Theme.ApplicationTheme());
-        return base.OnInitializedAsync();
+        LayoutService.MajorUpdateOccurred += LayoutServiceOnMajorUpdateOccurred;
+        await  LayoutService.SetBaseTheme(Theme.ApplicationTheme());
+         
     }
 
-    private void LayoutServiceOnMajorUpdateOccured(object? sender, EventArgs e)
+    private async Task LayoutServiceOnMajorUpdateOccurred()
     {
-        InvokeAsync(() => StateHasChanged());
+      
+        if (LayoutService.DarkModeToggle == Services.UserPreferences.DarkLightMode.System && _mudThemeProvider!=null)
+        {
+            _defaultDarkMode = await _mudThemeProvider.GetSystemDarkModeAsync();
+            await LayoutService.ApplyUserPreferences(_defaultDarkMode);
+            
+        }
+       await InvokeAsync(()=> StateHasChanged());
     }
 
 }
